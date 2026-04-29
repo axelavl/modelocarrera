@@ -154,10 +154,13 @@ def test_trazabilidad_ranking_y_elegibilidad():
     estado = construir_estado_inicial(funcs, 2026)
     estado.planta[Grado.PREFECTO].vacantes_ley = 1
     _asc, _post, e_traces, r_traces, d_traces = ejecutar_ascensos(estado, 2026, cfg)
-    assert len(e_traces) == 2
-    assert len(r_traces) == 2
-    assert len(d_traces) == 1
-    assert d_traces[0].decisiones
+    eleg_pft = [t for t in e_traces if t.grado_destino == Grado.PREFECTO]
+    rank_pft = [r for r in r_traces if r.grado_destino == Grado.PREFECTO]
+    dec_pft = [d for d in d_traces if d.grado_destino == Grado.PREFECTO]
+    assert len(eleg_pft) == 2
+    assert len(rank_pft) == 2
+    assert len(dec_pft) == 1
+    assert dec_pft[0].decisiones
 
 
 def test_transitoria_incrementa_vacante():

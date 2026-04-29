@@ -169,6 +169,7 @@ class RankingTrace:
     puntaje_merito: float
     ranking_merito: int
     ranking_antiguedad: int
+    año: int | None = None
 
 
 @dataclass
@@ -217,6 +218,10 @@ PLANTA_OPPL_2025 = {
 
 CURSOS_OPPL = {
     "COG": Curso(id="COG", nombre="Curso de Oficial Graduado", grado_que_habilita=Grado.PREFECTO)
+}
+
+CURSOS_REQUERIDOS_POR_GRADO: dict[Grado, set[str]] = {
+    Grado.PREFECTO: {"COG"},
 }
 
 MERITO_CONFIG_DEFAULT = {

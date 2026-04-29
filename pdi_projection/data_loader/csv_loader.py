@@ -28,6 +28,30 @@ class TabularInput:
     validation_issues: list[ValidationIssue]
 
 
+EXPECTED_COLUMNS: dict[str, set[str]] = {
+    "funcionarios": {
+        "id",
+        "fecha_nacimiento",
+        "sexo",
+        "fecha_ingreso_institucion",
+        "fecha_ingreso_grado_actual",
+        "grado_actual",
+        "antiguedad_escalafon",
+        "abono_meses",
+        "retiro_voluntario_fecha",
+        "retiro_voluntario_causal",
+    },
+    "calificaciones": {"id", "año", "lista"},
+    "cursos": {"id", "curso_id"},
+    "impedimentos": {"id", "tipo", "fecha_inicio", "fecha_fin"},
+    "planta_vacantes": {"grado", "vacantes_ley", "permanencia_min_años"},
+    "transitorias": {"año", "grado", "delta"},
+    "ingresos": {"id", "fecha_nombramiento", "fecha_nacimiento", "sexo"},
+}
+
+REQUIRED_FILES: set[str] = {"funcionarios", "planta_vacantes", "ingresos"}
+
+
 def _must_columns(path: Path, cols: set[str], issues: list[ValidationIssue], strict: bool) -> bool:
     if not path.exists():
         issues.append(ValidationIssue("error", "FILE_MISSING", f"Archivo faltante: {path.name}"))
@@ -72,28 +96,18 @@ def cargar_tabular(base_dir: str, cfg: AppConfig | None = None) -> TabularInput:
         "ingresos": base / "ingresos.csv",
     }
 
-    required = {"funcionarios", "planta_vacantes", "ingresos"}
     for k, p in files.items():
-        if k in required or cfg.input.strict_required_files:
-            _must_columns(p, set(), issues, strict=False)
+        if k == "funcionarios":
+            _must_columns(p, EXPECTED_COLUMNS[k], issues, strict=True)
+        elif k in REQUIRED_FILES:
+            _must_columns(p, EXPECTED_COLUMNS[k], issues, strict=cfg.input.strict_required_files)
+        elif p.exists() or cfg.input.strict_required_files:
+            _must_columns(p, EXPECTED_COLUMNS.get(k, set()), issues, strict=cfg.input.strict_required_files)
 
     funcionarios_raw = {}
     if files["funcionarios"].exists():
         with files["funcionarios"].open(newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            expected = {
-                "id",
-                "fecha_nacimiento",
-                "sexo",
-                "fecha_ingreso_institucion",
-                "fecha_ingreso_grado_actual",
-                "grado_actual",
-                "antiguedad_escalafon",
-                "abono_meses",
-                "retiro_voluntario_fecha",
-                "retiro_voluntario_causal",
-            }
-            _must_columns(files["funcionarios"], expected, issues, strict=True)
             for i, row in enumerate(reader, start=2):
                 rid = row.get("id", "").strip()
                 if not rid:
@@ -273,7 +287,7 @@ def cargar_dotacion(ruta: str) -> list[Funcionario]:
 
 
 def cargar_ingresos(ruta: str) -> dict[int, list[Funcionario]]:
-    data = cargar_tabular(Path(ruta).parent)
+    data = cargar_tabular(str(Path(ruta).parent))
     return data.ingresos_por_año
 
 

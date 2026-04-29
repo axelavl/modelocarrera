@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from pdi_projection.domain import CURSOS_OPPL, EstadoEscalafon, Grado, PLANTA_OPPL_2025
 
 
 def construir_estado_inicial(funcionarios: list, año_base: int, planta=None, transitorias=None, planta_override=None) -> EstadoEscalafon:
-    base_planta = (planta or PLANTA_OPPL_2025).copy()
+    fuente = planta or PLANTA_OPPL_2025
+    base_planta = {g: replace(p) for g, p in fuente.items()}
     if planta_override:
         for g, vac in planta_override.items():
             base_planta[g].vacantes_ley = vac

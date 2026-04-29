@@ -59,6 +59,7 @@ def construir_ranking_trace(
                 puntaje_merito=puntaje_merito(f, t, config_merito),
                 ranking_merito=mpos[f.id],
                 ranking_antiguedad=apos[f.id],
+                año=t,
             )
         )
     return sorted(out, key=lambda x: x.ranking_merito)
@@ -171,35 +172,41 @@ def ejecutar_ascensos(
         ranking_trazas.extend(construir_ranking_trace(elegibles, grado_destino, t, config_merito))
 
         ya_ascendidos: set[str] = set()
-        while vacantes > 0:
+        posiciones_sin_candidato = 0
+        while vacantes > 0 and len(ya_ascendidos) < len(elegibles):
             pos = estado.cycle_counter[grado_destino] + 1
             candidato, via, motivo_sel = seleccionar_candidato(pos, lista_merito, lista_antiguedad, ya_ascendidos, cfg)
             if candidato is None:
                 decisiones.append({"pos": str(pos), "resultado": motivo_sel})
                 if cfg.policy.enforce_batch_cutoff_on_missing_lane_candidate:
                     break
-                estado.cycle_counter[grado_destino] = pos % 6
-                vacantes -= 0
-                if not cfg.policy.allow_lane_fallback:
+                if cfg.policy.allow_lane_fallback:
+                    # seleccionar_candidato ya intentó ambas vías: no hay forma de avanzar.
                     break
-
-            else:
-                aplicar_ascenso(candidato, grado_destino, t, estado, cfg)
-                ascensos_totales.append(
-                    EventoCarrera(
-                        candidato.id,
-                        t,
-                        TipoEvento.ASCENSO,
-                        grado_origen=grado_origen,
-                        grado_destino=grado_destino,
-                        via=via,
-                        motivo=motivo_sel,
-                    )
-                )
-                decisiones.append({"pos": str(pos), "funcionario": candidato.id, "via": via.value, "resultado": motivo_sel})
-                ya_ascendidos.add(candidato.id)
-                vacantes -= 1
                 estado.cycle_counter[grado_destino] = pos % 6
+                posiciones_sin_candidato += 1
+                if posiciones_sin_candidato >= 6:
+                    # Una vuelta completa sin candidato: el ciclo no puede progresar.
+                    break
+                continue
+
+            posiciones_sin_candidato = 0
+            aplicar_ascenso(candidato, grado_destino, t, estado, cfg)
+            ascensos_totales.append(
+                EventoCarrera(
+                    candidato.id,
+                    t,
+                    TipoEvento.ASCENSO,
+                    grado_origen=grado_origen,
+                    grado_destino=grado_destino,
+                    via=via,
+                    motivo=motivo_sel,
+                )
+            )
+            decisiones.append({"pos": str(pos), "funcionario": candidato.id, "via": via.value, "resultado": motivo_sel})
+            ya_ascendidos.add(candidato.id)
+            vacantes -= 1
+            estado.cycle_counter[grado_destino] = pos % 6
 
         registrar_vacantes_remanentes(estado, grado_destino, vacantes, cfg)
 

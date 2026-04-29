@@ -4,6 +4,7 @@ from datetime import date
 
 from pdi_projection.config import AppConfig
 from pdi_projection.domain import (
+    CURSOS_REQUERIDOS_POR_GRADO,
     EligibilityTrace,
     EstadoElegibilidad,
     EstadoEscalafon,
@@ -34,7 +35,7 @@ def check_permanencia(f: Funcionario, t: int, planta: dict) -> bool:
 
 
 def check_curso(f: Funcionario, grado_destino: Grado, cursos_requeridos: dict[Grado, set[str]] | None = None) -> bool:
-    cursos_requeridos = cursos_requeridos or {Grado.PREFECTO: {"COG"}}
+    cursos_requeridos = cursos_requeridos if cursos_requeridos is not None else CURSOS_REQUERIDOS_POR_GRADO
     if grado_destino not in cursos_requeridos:
         return True
     return cursos_requeridos[grado_destino].issubset(f.cursos_aprobados)
@@ -70,8 +71,7 @@ def evaluar_elegibilidad(f: Funcionario, estado: EstadoEscalafon, t: int, grado_
 
     impedido, tipo_impedimento = check_impedimento(f, t, cfg)
     cumple_tiempo = check_permanencia(f, t, estado.planta)
-    cursos_requeridos = {Grado.PREFECTO: {"COG"}}
-    cumple_curso = check_curso(f, grado_destino, cursos_requeridos)
+    cumple_curso = check_curso(f, grado_destino)
 
     estado_eleg = EstadoElegibilidad.ELEGIBLE
     motivo = "ok"
