@@ -74,3 +74,13 @@ The legacy helpers at the bottom of `csv_loader.py` (`cargar_dotacion`, `cargar_
 - Domain identifiers, enums, file names, and validation messages are in **Spanish** (`Funcionario`, `EstadoEscalafon`, `procesar_ascensos`); type infrastructure (`AppConfig`, `IntEnum`, `dataclass`) is in **English**. Match the existing language when naming.
 - Mutate `EstadoEscalafon` in place; do not return new state objects from the phase functions — `simular` and the registry assume the same instance flows through.
 - Tests use the `mk_func` factory in `tests/test_oppl_rules.py` to construct `Funcionario` fixtures with sensible defaults; reuse it when adding tests.
+
+### Reporting layer (`pdi_projection/reporting`)
+
+Higher-level analyses that compose the simulator's outputs without modifying the engine:
+
+- `scenarios.correr_escenarios([(nombre, AppConfig), ...], ...)` runs N isolated simulations from the same input data. Inputs (`funcionarios`, `ingresos_por_año`) are deep-copied per scenario because the simulator mutates `Funcionario` in place — sharing references would cross-contaminate runs.
+- `cohorts.construir_trayectorias(logs, funcionarios_iniciales, año_base)` reconstructs each funcionario's grade and status year by year by replaying events from the log. Used to compute cohort distributions (`miembros_cohorte` + `distribucion_cohorte_por_año` + `resumen_cohorte`).
+- `html_report.generar_informe_html(...)` produces a self-contained HTML (Vega-Lite charts hydrated from CDN, KPIs, validation tables) that can be printed to PDF from any browser. No headless rendering deps required.
+
+The Streamlit app (`streamlit_app.py`) wires both modes — single simulation and scenario comparator — over the reporting layer.
