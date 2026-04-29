@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
-
 from pdi_projection.config import AppConfig
 from pdi_projection.domain import CausalRetiro, EstadoEscalafon, EstadoFuncionario, EventoCarrera, TipoEvento
 from pdi_projection.eligibility import años_carrera, lista_ultima
@@ -9,8 +7,6 @@ from pdi_projection.eligibility import años_carrera, lista_ultima
 
 def procesar_retiros(estado: EstadoEscalafon, t: int, cfg: AppConfig) -> list[EventoCarrera]:
     eventos = []
-    month, day = cfg.policy.event_month_day
-    _ = date(t, month, day)
     for f in list(estado.funcionarios.values()):
         if f.estado != EstadoFuncionario.ACTIVO:
             continue

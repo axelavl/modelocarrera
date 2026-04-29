@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import json
 import tempfile
 import zipfile
 from copy import deepcopy
@@ -14,19 +13,21 @@ import streamlit as st
 
 from pdi_projection.config import AppConfig
 from pdi_projection.data_loader import cargar_tabular
-from pdi_projection.domain import Grado, SECUENCIA_OPPL, construir_estado_inicial
+from pdi_projection.domain import SECUENCIA_OPPL, Grado, construir_estado_inicial
 from pdi_projection.outputs import exportar_resultados
 from pdi_projection.reporting import (
     CohorteCriterio,
+    comparar_ascensos,
     construir_trayectorias,
     correr_escenarios,
     distribucion_cohorte_por_año,
+    generar_informe_comparativo_html,
     generar_informe_html,
+    metricas_por_grado_destino,
     miembros_cohorte,
     resumen_cohorte,
 )
 from pdi_projection.simulator import simular
-
 
 REQUIRED_FILES = ["funcionarios.csv", "planta_vacantes.csv", "ingresos.csv"]
 GRADO_NOMBRE = {int(g): g.name for g in Grado}
@@ -202,7 +203,7 @@ def _tab_flujo(eventos: pd.DataFrame) -> None:
         )
 
 
-def _tab_trazabilidad(eventos: pd.DataFrame, evaluados_df: pd.DataFrame) -> None:
+def _tab_trazabilidad(eventos: pd.DataFrame, evaluados_df: pd.DataFrame, ranking_df: pd.DataFrame | None = None) -> None:
     ids = sorted(eventos["funcionario_id"].unique()) if not eventos.empty else []
     if not ids:
         st.info("Sin funcionarios con eventos.")
@@ -216,6 +217,72 @@ def _tab_trazabilidad(eventos: pd.DataFrame, evaluados_df: pd.DataFrame) -> None
             evaluados_df[evaluados_df["funcionario_id"] == fid].sort_values(["año", "grado_destino"]),
             use_container_width=True, hide_index=True,
         )
+    if ranking_df is not None and not ranking_df.empty:
+        sub = ranking_df[ranking_df["funcionario_id"] == fid].sort_values(["año", "grado_destino"])
+        if not sub.empty:
+            st.markdown("**Ranking por año** (mérito y antigüedad cuando fue evaluado)")
+            st.dataframe(sub, use_container_width=True, hide_index=True)
+
+
+def _tab_backtesting(logs, ascensos_hist: list) -> None:
+    if not ascensos_hist:
+        st.info("Cargue `ascensos_hist.csv` para activar el backtesting contra el registro real.")
+        return
+    eventos_sim = [e for evs in logs.eventos_por_año.values() for e in evs]
+    resultado = comparar_ascensos(eventos_sim, ascensos_hist)
+    g = resultado.metricas_globales
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Precision", f"{g['precision'] * 100:.1f}%")
+    c2.metric("Recall", f"{g['recall'] * 100:.1f}%")
+    c3.metric("F1", f"{g['f1']:.3f}")
+    c4.metric("Matches", int(g["matches"]))
+    st.caption(
+        f"Soporte: {int(g['soporte_simulado'])} ascensos simulados vs. "
+        f"{int(g['soporte_historico'])} históricos."
+    )
+
+    if resultado.metricas_por_año:
+        st.markdown("**Métricas por año**")
+        df_y = pd.DataFrame(
+            [{"año": año, **{k: v for k, v in m.items() if k in ("precision", "recall", "f1", "matches", "falsos_positivos", "falsos_negativos")}}
+             for año, m in sorted(resultado.metricas_por_año.items())]
+        )
+        st.dataframe(df_y, use_container_width=True, hide_index=True)
+
+    pg = metricas_por_grado_destino(resultado)
+    if pg:
+        st.markdown("**Métricas por grado destino**")
+        df_g = pd.DataFrame(
+            [{"grado": GRADO_NOMBRE.get(int(g_), "—"), **{k: v for k, v in m.items() if k in ("precision", "recall", "f1", "matches", "falsos_positivos", "falsos_negativos")}}
+             for g_, m in pg.items()]
+        )
+        st.dataframe(df_g, use_container_width=True, hide_index=True)
+
+    if resultado.falsos_positivos or resultado.falsos_negativos:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Falsos positivos** (modelo ascendió, histórico no)")
+            df_fp = pd.DataFrame(
+                [{"funcionario_id": fid, "año": año, "grado_destino": GRADO_NOMBRE.get(int(g_), "—")}
+                 for fid, año, g_ in resultado.falsos_positivos]
+            )
+            st.dataframe(df_fp, use_container_width=True, hide_index=True)
+        with c2:
+            st.markdown("**Falsos negativos** (histórico ascendió, modelo no)")
+            df_fn = pd.DataFrame(
+                [{"funcionario_id": fid, "año": año, "grado_destino": GRADO_NOMBRE.get(int(g_), "—")}
+                 for fid, año, g_ in resultado.falsos_negativos]
+            )
+            st.dataframe(df_fn, use_container_width=True, hide_index=True)
+
+    if resultado.via_mismatches:
+        st.markdown("**Discrepancias de vía** (mismo ascenso, distinta vía)")
+        df_v = pd.DataFrame(
+            [{"funcionario_id": fid, "año": año, "grado_destino": GRADO_NOMBRE.get(int(g_), "—"),
+              "via_simulada": vs.value if vs else "", "via_historica": vh.value if vh else ""}
+             for fid, año, g_, vs, vh in resultado.via_mismatches]
+        )
+        st.dataframe(df_v, use_container_width=True, hide_index=True)
 
 
 def _tab_validacion(issues: list) -> None:
@@ -225,7 +292,7 @@ def _tab_validacion(issues: list) -> None:
     df = pd.DataFrame([vars(i) for i in issues])
     sev_counts = df["severity"].value_counts()
     cols = st.columns(len(sev_counts))
-    for col, (sev, n) in zip(cols, sev_counts.items()):
+    for col, (sev, n) in zip(cols, sev_counts.items(), strict=False):
         col.metric(sev.capitalize(), int(n))
     st.dataframe(df, use_container_width=True, hide_index=True)
 
@@ -285,6 +352,15 @@ def _tab_cohortes(resultado, año_base: int) -> None:
         df_g["grado"] = pd.Categorical(df_g["grado"], categories=ORDEN_JERARQUICO, ordered=True)
         df_g = df_g.sort_values("grado")
         st.dataframe(df_g, use_container_width=True, hide_index=True)
+
+    if resumen.get("tiempo_promedio_por_grado"):
+        st.markdown("**Tiempo promedio por grado** (años en cada grado por miembro de la cohorte)")
+        df_t = pd.DataFrame(
+            [{"grado": k, "años_promedio": v} for k, v in resumen["tiempo_promedio_por_grado"].items()]
+        )
+        df_t["grado"] = pd.Categorical(df_t["grado"], categories=ORDEN_JERARQUICO, ordered=True)
+        df_t = df_t.sort_values("grado")
+        st.dataframe(df_t, use_container_width=True, hide_index=True)
 
 
 def _tab_descargas(outdir: Path, html_report: str) -> None:
@@ -380,7 +456,7 @@ def _tab_comparador(resultados: list) -> None:
     st.markdown("**Eventos acumulados por escenario**")
     ev_rows = []
     for r in resultados:
-        for año, evs in r.logs.eventos_por_año.items():
+        for evs in r.logs.eventos_por_año.values():
             for e in evs:
                 ev_rows.append({"escenario": r.nombre, "tipo": e.tipo.value})
     if ev_rows:
@@ -467,6 +543,7 @@ def _modo_simple(uploaded, año_base, horizonte):
 
         eventos = _eventos_df(logs)
         evaluados_df = pd.read_csv(outdir / "funcionarios_evaluados.csv") if (outdir / "funcionarios_evaluados.csv").exists() else pd.DataFrame()
+        ranking_df = pd.read_csv(outdir / "ranking.csv") if (outdir / "ranking.csv").exists() else pd.DataFrame()
         config_resumen = asdict(cfg.policy)
         html_report = generar_informe_html(
             snapshots=logs.snapshots, eventos_df=eventos, planta=data.planta,
@@ -476,20 +553,35 @@ def _modo_simple(uploaded, año_base, horizonte):
         result = _SimResult("Base", cfg, logs, estado, funcs_iniciales)
 
         st.subheader("2) Resultados")
-        tabs = st.tabs(["Resumen", "Pirámide", "Flujo anual", "Cohortes", "Trazabilidad", "Validación", "Descargas"])
-        with tabs[0]:
+        labels = ["Resumen", "Pirámide", "Flujo anual", "Cohortes", "Trazabilidad"]
+        if data.ascensos_hist:
+            labels.append("Backtesting")
+        labels += ["Validación", "Descargas"]
+        tabs = st.tabs(labels)
+        idx = 0
+        with tabs[idx]:
             _tab_resumen(logs.snapshots, eventos, data.planta)
-        with tabs[1]:
+        idx += 1
+        with tabs[idx]:
             _tab_piramide(logs.snapshots, data.planta)
-        with tabs[2]:
+        idx += 1
+        with tabs[idx]:
             _tab_flujo(eventos)
-        with tabs[3]:
+        idx += 1
+        with tabs[idx]:
             _tab_cohortes(result, año_base)
-        with tabs[4]:
-            _tab_trazabilidad(eventos, evaluados_df)
-        with tabs[5]:
+        idx += 1
+        with tabs[idx]:
+            _tab_trazabilidad(eventos, evaluados_df, ranking_df)
+        idx += 1
+        if data.ascensos_hist:
+            with tabs[idx]:
+                _tab_backtesting(logs, data.ascensos_hist)
+            idx += 1
+        with tabs[idx]:
             _tab_validacion(data.validation_issues)
-        with tabs[6]:
+        idx += 1
+        with tabs[idx]:
             _tab_descargas(outdir, html_report)
 
 
@@ -528,28 +620,53 @@ def _modo_comparador(uploaded, año_base, horizonte):
         tab_comp, *tabs_det = st.tabs(["Comparación"] + [r.nombre for r in resultados])
         with tab_comp:
             _tab_comparador(resultados)
-        for tab, r in zip(tabs_det, resultados):
+            html_comp = generar_informe_comparativo_html(resultados)
+            st.download_button(
+                "Descargar informe comparativo (HTML, imprimible a PDF)",
+                data=html_comp.encode("utf-8"),
+                file_name="informe_comparativo_oppl_pdi.html",
+                mime="text/html",
+            )
+        for tab, r in zip(tabs_det, resultados, strict=False):
             with tab:
                 eventos = _eventos_df(r.logs)
                 outdir = tmpdir / f"outputs_{r.nombre.replace(' ', '_')}"
                 exportar_resultados(r.logs, data.validation_issues, str(outdir), cfg=r.config)
                 evaluados_df = pd.read_csv(outdir / "funcionarios_evaluados.csv") if (outdir / "funcionarios_evaluados.csv").exists() else pd.DataFrame()
+                ranking_df = pd.read_csv(outdir / "ranking.csv") if (outdir / "ranking.csv").exists() else pd.DataFrame()
                 html_report = generar_informe_html(
                     snapshots=r.logs.snapshots, eventos_df=eventos, planta=r.estado_final.planta,
                     validation_issues=data.validation_issues, config_resumen=asdict(r.config.policy),
                 )
-                sub = st.tabs(["Resumen", "Pirámide", "Flujo", "Cohortes", "Validación", "Descargas"])
-                with sub[0]:
+                labels = ["Resumen", "Pirámide", "Flujo", "Cohortes", "Trazabilidad"]
+                if data.ascensos_hist:
+                    labels.append("Backtesting")
+                labels += ["Validación", "Descargas"]
+                sub = st.tabs(labels)
+                j = 0
+                with sub[j]:
                     _tab_resumen(r.logs.snapshots, eventos, r.estado_final.planta)
-                with sub[1]:
+                j += 1
+                with sub[j]:
                     _tab_piramide(r.logs.snapshots, r.estado_final.planta)
-                with sub[2]:
+                j += 1
+                with sub[j]:
                     _tab_flujo(eventos)
-                with sub[3]:
+                j += 1
+                with sub[j]:
                     _tab_cohortes(r, año_base)
-                with sub[4]:
+                j += 1
+                with sub[j]:
+                    _tab_trazabilidad(eventos, evaluados_df, ranking_df)
+                j += 1
+                if data.ascensos_hist:
+                    with sub[j]:
+                        _tab_backtesting(r.logs, data.ascensos_hist)
+                    j += 1
+                with sub[j]:
                     _tab_validacion(data.validation_issues)
-                with sub[5]:
+                j += 1
+                with sub[j]:
                     _tab_descargas(outdir, html_report)
 
 

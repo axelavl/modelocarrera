@@ -29,7 +29,7 @@ def puntaje_merito(f: Funcionario, t: int, config: dict) -> float:
     puntajes = [mapeo.get(c.lista, 0) or 0 for c in cals]
     pesos_efectivos = pesos[: len(puntajes)]
     total_peso = sum(pesos_efectivos)
-    return sum(p * w for p, w in zip(puntajes, pesos_efectivos)) / total_peso
+    return sum(p * w for p, w in zip(puntajes, pesos_efectivos, strict=False)) / total_peso
 
 
 def ordenar_por_merito(elegibles: list[Funcionario], t: int, config: dict) -> list[Funcionario]:

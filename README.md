@@ -100,16 +100,29 @@ python run_model.py
 
 ### Paso 6 — Verificar resultados
 
-Se generan como mínimo:
+Se generan los siguientes archivos en `outputs/`:
 
-- `funcionarios_evaluados.csv`
-- `ascensos.csv`
-- `retiros.csv`
-- `postergaciones.csv`
-- `resultados_proyeccion.csv`
-- `indicadores.csv`
-- `reporte_validacion.csv`
-- `resumen_escenarios.csv`
+- `funcionarios_evaluados.csv` — traza de elegibilidad por funcionario/año/grado-destino
+- `ascensos.csv` — ascensos efectivos
+- `retiros.csv` — retiros con causal
+- `postergaciones.csv` — elegibles que no fueron ascendidos
+- `resultados_proyeccion.csv` — dotación por año y grado (insumo principal de gráficos)
+- `indicadores.csv` — vacantes iniciales/finales por grado/año
+- `decisiones_promocion.csv` — traza posición a posición del ciclo 5:1
+- `ranking.csv` — posición mérito y antigüedad por candidato
+- `reporte_validacion.csv` — issues de validación de los CSV de entrada
+- `resumen_escenarios.csv` — agregado anual
+- `manifest.json` — `AppConfig` usado (reproducibilidad)
+
+### Paso 7 — Ejemplo runnable
+
+Para correr el pipeline con datos de muestra:
+
+```bash
+python examples/run_model.py
+```
+
+Los CSV de entrada están en `examples/datos/` y los outputs van a `examples/outputs/` (ignorado por git).
 
 ---
 
@@ -185,6 +198,20 @@ id,fecha_nombramiento,fecha_nacimiento,sexo
 PDI-9001,2026-01-01,2001-03-22,M
 PDI-9002,2026-01-01,2002-08-10,F
 ```
+
+### 4.8 `ascensos_hist.csv` (opcional, para backtesting)
+
+Si se proporciona, el sistema permite comparar los ascensos producidos por el modelo
+contra el registro histórico real, reportando precision/recall por año y por grado:
+
+```csv
+funcionario_id,año,grado_origen,grado_destino,via
+PDI-0001,2024,8,7,merito
+PDI-0002,2024,7,5,antiguedad
+```
+
+`via` es opcional (`merito`, `antiguedad`, o vacío). El módulo
+`pdi_projection.reporting.comparar_ascensos` genera el `ResultadoBacktest`.
 
 ---
 

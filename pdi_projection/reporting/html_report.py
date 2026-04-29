@@ -8,8 +8,7 @@ from typing import Any
 import altair as alt
 import pandas as pd
 
-from pdi_projection.domain import Grado, SECUENCIA_OPPL
-
+from pdi_projection.domain import SECUENCIA_OPPL, Grado
 
 GRADO_NOMBRE = {int(g): g.name for g in Grado}
 ORDEN_JERARQUICO = [g.name for g in reversed(SECUENCIA_OPPL)]
@@ -185,7 +184,7 @@ def generar_informe_html(
         año_piramide = años[-1]
 
     parts = [_HTML_HEAD]
-    parts.append(f'<h1>Informe de proyección OPPL/PDI</h1>')
+    parts.append('<h1>Informe de proyección OPPL/PDI</h1>')
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
     horizonte = f"{años[0]}–{años[-1]}" if años else "(sin años)"
     parts.append(f'<div class="meta">Generado {fecha} · Horizonte simulado: {horizonte}</div>')
@@ -223,6 +222,84 @@ def generar_informe_html(
             [{"parámetro": k, "valor": json.dumps(v, ensure_ascii=False, default=str)} for k, v in config_resumen.items()]
         )
         parts.append(_table_html(df_cfg, max_rows=200))
+
+    parts.append(_HTML_TAIL)
+    return "".join(parts)
+
+
+def generar_informe_comparativo_html(resultados: list, año_piramide: int | None = None) -> str:
+    """Informe HTML que compara N escenarios. ``resultados`` debe ser una lista
+    de objetos con atributos ``nombre``, ``logs`` y ``estado_final.planta`` (los
+    objetos producidos por ``correr_escenarios`` o equivalentes)."""
+    parts = [_HTML_HEAD]
+    parts.append('<h1>Informe comparativo OPPL/PDI</h1>')
+    fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
+    nombres = " · ".join(r.nombre for r in resultados)
+    parts.append(f'<div class="meta">Generado {fecha} · Escenarios: {html.escape(nombres)}</div>')
+
+    rows_kpi = []
+    for r in resultados:
+        años = sorted(r.logs.snapshots.keys())
+        if not años:
+            continue
+        dot_ini = sum(r.logs.snapshots[años[0]].values())
+        dot_fin = sum(r.logs.snapshots[años[-1]].values())
+        n_asc = sum(1 for evs in r.logs.eventos_por_año.values() for e in evs if e.tipo.value == "ascenso")
+        n_ret = sum(1 for evs in r.logs.eventos_por_año.values() for e in evs if e.tipo.value == "retiro")
+        n_post = sum(1 for evs in r.logs.eventos_por_año.values() for e in evs if e.tipo.value == "postergacion_vacante")
+        rows_kpi.append({
+            "escenario": r.nombre,
+            "dotación_inicial": dot_ini,
+            "dotación_final": dot_fin,
+            "delta": dot_fin - dot_ini,
+            "ascensos": n_asc,
+            "retiros": n_ret,
+            "postergados": n_post,
+        })
+    parts.append("<h2>KPIs comparativos</h2>")
+    parts.append(_table_html(pd.DataFrame(rows_kpi), max_rows=10))
+
+    rows_total = []
+    for r in resultados:
+        for año, snap in sorted(r.logs.snapshots.items()):
+            rows_total.append({"escenario": r.nombre, "año": año, "total": sum(snap.values())})
+    if rows_total:
+        df = pd.DataFrame(rows_total)
+        chart = (
+            alt.Chart(df)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("año:O", title="Año"),
+                y=alt.Y("total:Q", title="Dotación total"),
+                color=alt.Color("escenario:N", title="Escenario"),
+                tooltip=["escenario", "año", "total"],
+            )
+            .properties(width=820, height=320, title="Evolución comparada de la dotación total")
+        )
+        parts.append("<h2>Dotación total por escenario</h2>")
+        parts.append(_vega_div("chart-cmp-tot", chart))
+
+    rows_grado = []
+    for r in resultados:
+        for año, snap in sorted(r.logs.snapshots.items()):
+            for g, dot in snap.items():
+                rows_grado.append({"escenario": r.nombre, "año": año, "grado": GRADO_NOMBRE[int(g)], "dotacion": dot})
+    if rows_grado:
+        df_g = pd.DataFrame(rows_grado)
+        chart_g = (
+            alt.Chart(df_g)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("año:O", title="Año"),
+                y=alt.Y("dotacion:Q", title="Dotación"),
+                color=alt.Color("escenario:N", title="Escenario"),
+                row=alt.Row("grado:N", sort=ORDEN_JERARQUICO, title="Grado"),
+                tooltip=["escenario", "año", "grado", "dotacion"],
+            )
+            .properties(width=820, height=120)
+        )
+        parts.append("<h2>Evolución por grado</h2>")
+        parts.append(_vega_div("chart-cmp-grado", chart_g))
 
     parts.append(_HTML_TAIL)
     return "".join(parts)

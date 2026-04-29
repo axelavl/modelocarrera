@@ -7,7 +7,6 @@ from pathlib import Path
 
 from pdi_projection.domain import TipoEvento
 
-
 EVALUADOS_FIELDS = [
     "funcionario_id",
     "año",

@@ -1,13 +1,22 @@
 from datetime import date
 
 from pdi_projection.config import AppConfig
-from pdi_projection.domain import Calificacion, EstadoFuncionario, Funcionario, Grado, PLANTA_OPPL_2025, TipoEvento, TipoImpedimento, Via
+from pdi_projection.domain import (
+    PLANTA_OPPL_2025,
+    Calificacion,
+    EstadoFuncionario,
+    Funcionario,
+    Grado,
+    Impedimento,
+    TipoEvento,
+    TipoImpedimento,
+    Via,
+)
 from pdi_projection.domain.state_factory import construir_estado_inicial
 from pdi_projection.eligibility import check_curso, check_lista, check_permanencia, get_elegibles, tiempo_en_grado
 from pdi_projection.ingress import procesar_ingresos
 from pdi_projection.promotion_engine import calcular_vacantes, ejecutar_ascensos
 from pdi_projection.retirement import procesar_retiros
-from pdi_projection.domain import Impedimento
 
 
 def mk_func(fid: str, grado: Grado, ingreso_grado_year=2020, ingreso_inst_year=2010, ant=1, listas=None, cursos=None, abono=0):

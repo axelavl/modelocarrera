@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from pdi_projection.domain.models import Grado, MERITO_CONFIG_DEFAULT
-
+from pdi_projection.domain.models import MERITO_CONFIG_DEFAULT, Grado
 
 NORMATIVE_HARD_RULES = {
     "R1": "Permanencia mínima por grado según planta vigente.",

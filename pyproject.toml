@@ -13,3 +13,19 @@ dependencies = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+extend-exclude = ["pdi_projection/__pycache__", "tests/__pycache__"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+  "E501",  # line length is set above; do not double-flag
+  "E741",  # ambiguous variable names (we use `l` para lista)
+  "B008",  # default arg with mutable defaults uses dataclass field()
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401", "F403"]  # los __init__ re-exportan deliberadamente

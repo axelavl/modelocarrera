@@ -1,0 +1,5 @@
+funcionario_id,año,grado_origen,grado_destino,via
+PDI-002,2025,8,7,merito
+PDI-004,2024,9,8,merito
+PDI-008,2024,12,11,merito
+PDI-010,2024,13,12,antiguedad

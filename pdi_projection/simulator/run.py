@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pdi_projection.config import AppConfig
 from pdi_projection import ingress, retirement
+from pdi_projection.config import AppConfig
 from pdi_projection.logs import LogsRegistry
 from pdi_projection.promotion_engine import ejecutar_ascensos
 

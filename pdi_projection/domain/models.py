@@ -119,6 +119,15 @@ class EventoCarrera:
 
 
 @dataclass
+class AscensoHistorico:
+    funcionario_id: str
+    año: int
+    grado_origen: Grado
+    grado_destino: Grado
+    via: Via | None = None
+
+
+@dataclass
 class Funcionario:
     id: str
     fecha_nacimiento: date
@@ -228,6 +237,4 @@ MERITO_CONFIG_DEFAULT = {
     "ventana_años": 3,
     "mapeo_lista_puntaje": {1: 100, 2: 70, 3: 0, 4: None},
     "ponderadores_temporales": [0.5, 0.3, 0.2],
-    "bonus_cursos_adicionales": 0,
-    "descuento_sanciones": 0,
 }

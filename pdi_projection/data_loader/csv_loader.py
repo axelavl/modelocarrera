@@ -1,21 +1,23 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
 from pdi_projection.config import AppConfig
 from pdi_projection.domain import (
+    AscensoHistorico,
     Calificacion,
     CausalRetiro,
-    Curso,
+    EstadoFuncionario,
     Funcionario,
     Grado,
     Impedimento,
     Planta,
     TipoImpedimento,
     ValidationIssue,
+    Via,
 )
 
 
@@ -26,6 +28,7 @@ class TabularInput:
     planta: dict[Grado, Planta]
     transitorias: dict[tuple[int, Grado], int]
     validation_issues: list[ValidationIssue]
+    ascensos_hist: list[AscensoHistorico] = field(default_factory=list)
 
 
 EXPECTED_COLUMNS: dict[str, set[str]] = {
@@ -47,6 +50,7 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
     "planta_vacantes": {"grado", "vacantes_ley", "permanencia_min_años"},
     "transitorias": {"año", "grado", "delta"},
     "ingresos": {"id", "fecha_nombramiento", "fecha_nacimiento", "sexo"},
+    "ascensos_hist": {"funcionario_id", "año", "grado_origen", "grado_destino"},
 }
 
 REQUIRED_FILES: set[str] = {"funcionarios", "planta_vacantes", "ingresos"}
@@ -94,6 +98,7 @@ def cargar_tabular(base_dir: str, cfg: AppConfig | None = None) -> TabularInput:
         "planta_vacantes": base / "planta_vacantes.csv",
         "transitorias": base / "transitorias.csv",
         "ingresos": base / "ingresos.csv",
+        "ascensos_hist": base / "ascensos_hist.csv",
     }
 
     for k, p in files.items():
@@ -253,11 +258,39 @@ def cargar_tabular(base_dir: str, cfg: AppConfig | None = None) -> TabularInput:
             if dot > planta[g].vacantes_ley:
                 issues.append(ValidationIssue("warning", "DOTACION_SOBRE_PLANTA", f"Dotación {dot} > planta {planta[g].vacantes_ley} en grado {int(g)}"))
 
-    return TabularInput(funcionarios, ingresos, planta, transitorias, issues)
+    ascensos_hist: list[AscensoHistorico] = []
+    if files["ascensos_hist"].exists():
+        ids_funcs = {f.id for f in funcionarios}
+        with files["ascensos_hist"].open(newline="", encoding="utf-8") as f:
+            for i, row in enumerate(csv.DictReader(f), start=2):
+                fid = row.get("funcionario_id", "").strip()
+                if not fid:
+                    issues.append(ValidationIssue("error", "ASCENSO_HIST_ID_VACIO", "funcionario_id vacío", f"ascensos_hist:{i}"))
+                    continue
+                if ids_funcs and fid not in ids_funcs:
+                    issues.append(ValidationIssue("warning", "ASCENSO_HIST_HUERFANO", f"funcionario_id {fid} no está en funcionarios.csv", f"ascensos_hist:{i}"))
+                try:
+                    año = int(row["año"])
+                except (KeyError, ValueError):
+                    issues.append(ValidationIssue("error", "ASCENSO_HIST_BAD_AÑO", f"año inválido: {row.get('año')}", f"ascensos_hist:{i}"))
+                    continue
+                go = _parse_grado(row.get("grado_origen", ""), issues, f"ascensos_hist:{i}")
+                gd = _parse_grado(row.get("grado_destino", ""), issues, f"ascensos_hist:{i}")
+                if not go or not gd:
+                    continue
+                via_raw = (row.get("via") or "").strip().lower()
+                via = None
+                if via_raw:
+                    try:
+                        via = Via(via_raw)
+                    except ValueError:
+                        issues.append(ValidationIssue("warning", "ASCENSO_HIST_BAD_VIA", f"vía inválida: {via_raw}", f"ascensos_hist:{i}"))
+                ascensos_hist.append(AscensoHistorico(funcionario_id=fid, año=año, grado_origen=go, grado_destino=gd, via=via))
+
+    return TabularInput(funcionarios, ingresos, planta, transitorias, issues, ascensos_hist=ascensos_hist)
 
 
 # Compatibilidad legacy
-from pdi_projection.domain import EstadoFuncionario
 
 
 def cargar_dotacion(ruta: str) -> list[Funcionario]:

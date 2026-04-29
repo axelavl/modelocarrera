@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from pdi_projection.domain import CURSOS_OPPL, EstadoEscalafon, Grado, PLANTA_OPPL_2025
+from pdi_projection.domain import CURSOS_OPPL, PLANTA_OPPL_2025, EstadoEscalafon, Grado
 
 
 def construir_estado_inicial(funcionarios: list, año_base: int, planta=None, transitorias=None, planta_override=None) -> EstadoEscalafon:
