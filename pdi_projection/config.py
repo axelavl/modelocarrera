@@ -10,11 +10,27 @@ NORMATIVE_HARD_RULES = {
     "R4": "Lista 4 produce retiro; lista 3 posterga elegibilidad.",
 }
 
+# Decisiones normativas tomadas (ver README §8). Los defaults de
+# SimulationPolicy reflejan estas decisiones. Cambiarlos sin justificación
+# normativa altera el sentido del modelo.
+NORMATIVE_DECISIONS = {
+    "fallback_5_1": "Corte estricto de tanda: si una vía no tiene candidato, "
+                    "el grado se procesa parcialmente y el resto queda sin proveer.",
+    "ttl_vacantes": "Acumulación indefinida: las vacantes no provistas se "
+                    "arrastran sin caducidad mientras dure la simulación.",
+    "calificacion_faltante": "No elegible por dato faltante: un funcionario "
+                             "sin calificación reportada al año t queda postergado, "
+                             "no asciende.",
+    "salud_impedimento": "Salud no bloquea ascenso: los impedimentos de tipo "
+                         "SALUD quedan registrados pero no impiden la promoción "
+                         "(ni causan retiro).",
+}
+
 
 @dataclass
 class SimulationPolicy:
     mandatory_career_years: int = 30
-    health_blocks_promotion: bool = True
+    health_blocks_promotion: bool = False
     accumulate_unfilled_vacancies: bool = True
     unfilled_vacancy_ttl_years: int | None = None
     enforce_batch_cutoff_on_missing_lane_candidate: bool = True
@@ -23,7 +39,7 @@ class SimulationPolicy:
     event_month_day: tuple[int, int] = (1, 1)
     enable_sobredotacion_absorption: bool = True
     postergacion_conserva_antiguedad: bool = True
-    treat_missing_calificacion_as_lista2: bool = True
+    treat_missing_calificacion_as_lista2: bool = False
 
 
 @dataclass

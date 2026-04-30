@@ -28,7 +28,7 @@ def mk_func(fid, grado, ingreso_grado_year=2020, ingreso_inst_year=2010, ant=1, 
         grado_actual=grado,
         antiguedad_escalafon=ant,
         cursos_aprobados=set(cursos or []),
-        historico_calificaciones=listas or [Calificacion(2025, 1)],
+        historico_calificaciones=listas if listas is not None else [Calificacion(2025, 1)],
         abono_meses=abono,
         retiro_voluntario_fecha=retiro_vol,
     )
@@ -143,3 +143,53 @@ def test_exportar_resultados_genera_csv_con_headers_aunque_esten_vacios(tmp_path
     assert contenido == "funcionario_id,año,origen,destino,via,motivo"
     contenido_val = (outdir / "reporte_validacion.csv").read_text(encoding="utf-8").strip()
     assert contenido_val == "severity,code,message,row_ref"
+
+
+# ----------------------------------------------------------------------------
+# Decisiones normativas (README §8). Cada test fija explícitamente la decisión
+# en el AppConfig para que un cambio de default no pase silenciosamente.
+# ----------------------------------------------------------------------------
+
+
+def test_decision_3B_sin_calificacion_posterga_y_no_asciende():
+    """Decisión 3.B: un funcionario sin calificación reportada queda postergado."""
+    cfg = AppConfig()
+    assert cfg.policy.treat_missing_calificacion_as_lista2 is False
+    f = mk_func("sin_cal", Grado.SUBPREFECTO, ant=1, cursos=["COG"], listas=[])
+    estado = construir_estado_inicial([f], 2026)
+    estado.planta[Grado.PREFECTO].vacantes_ley = 1
+    asc, post, eleg, _, _ = ejecutar_ascensos(estado, 2026, cfg)
+    # No es ascendido y queda con motivo "sin_calificacion".
+    assert not any(e.funcionario_id == "sin_cal" for e in asc)
+    trazas = [t for t in eleg if t.funcionario_id == "sin_cal"]
+    assert trazas
+    assert all(not t.elegible for t in trazas)
+    assert any(t.motivo == "sin_calificacion" for t in trazas)
+
+
+def test_decision_3B_se_puede_invertir_con_dial():
+    """El comportamiento histórico (asumir lista 2) sigue disponible vía toggle."""
+    cfg = AppConfig()
+    cfg.policy.treat_missing_calificacion_as_lista2 = True
+    f = mk_func("sin_cal", Grado.SUBPREFECTO, ant=1, cursos=["COG"], listas=[])
+    estado = construir_estado_inicial([f], 2026)
+    estado.planta[Grado.PREFECTO].vacantes_ley = 1
+    asc, _, _, _, _ = ejecutar_ascensos(estado, 2026, cfg)
+    assert any(e.funcionario_id == "sin_cal" for e in asc)
+
+
+def test_decision_4C_salud_no_bloquea_ascenso_por_default():
+    """Decisión 4.C: salud no bloquea ni causa retiro."""
+    from pdi_projection.domain import Impedimento, TipoImpedimento
+    cfg = AppConfig()
+    assert cfg.policy.health_blocks_promotion is False
+    f = mk_func("salud", Grado.SUBPREFECTO, ant=1, cursos=["COG"])
+    f.impedimentos = [Impedimento(TipoImpedimento.SALUD, date(2025, 1, 1), None)]
+    estado = construir_estado_inicial([f], 2026)
+    estado.planta[Grado.PREFECTO].vacantes_ley = 1
+    asc, _, _, _, _ = ejecutar_ascensos(estado, 2026, cfg)
+    # Salud no bloquea: el funcionario asciende.
+    assert any(e.funcionario_id == "salud" for e in asc)
+    # Y tampoco se retira.
+    eventos_ret = procesar_retiros(estado, 2026, cfg)
+    assert not any(e.funcionario_id == "salud" for e in eventos_ret)

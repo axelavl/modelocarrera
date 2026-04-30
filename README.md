@@ -225,16 +225,18 @@ PDI-0002,2024,7,5,antiguedad
 
 ### Supuestos configurables (`AppConfig`)
 
-- `mandatory_career_years`
-- `health_blocks_promotion`
-- `accumulate_unfilled_vacancies`
-- `unfilled_vacancy_ttl_years`
-- `enforce_batch_cutoff_on_missing_lane_candidate`
-- `allow_lane_fallback`
-- `merit.config`
-- `enable_sobredotacion_absorption`
-- `event_month_day`
-- `treat_missing_calificacion_as_lista2`
+| Dial | Default | Decisión normativa (§8) |
+|---|---|---|
+| `mandatory_career_years` | 30 | — |
+| `health_blocks_promotion` | `False` | §8.4 (salud no bloquea) |
+| `accumulate_unfilled_vacancies` | `True` | §8.2 (acumulación indefinida) |
+| `unfilled_vacancy_ttl_years` | `None` | §8.2 (sin TTL) |
+| `enforce_batch_cutoff_on_missing_lane_candidate` | `True` | §8.1 (corte estricto) |
+| `allow_lane_fallback` | `False` | §8.1 |
+| `treat_missing_calificacion_as_lista2` | `False` | §8.3 (sin calificación posterga) |
+| `enable_sobredotacion_absorption` | `True` | — |
+| `event_month_day` | `(1, 1)` | — |
+| `merit.config` | ver `MERITO_CONFIG_DEFAULT` | — |
 
 ---
 
@@ -262,12 +264,55 @@ pytest -q
 
 ---
 
-## 8) Supuestos pendientes por validar
+## 8) Decisiones normativas tomadas
 
-- Formalización jurídica exacta de fallback entre vías 5:1.
-- Regla oficial para caducidad (o no) de vacantes no provistas.
-- Tratamiento definitivo de calificaciones faltantes en año t.
-- Alcance normativo de salud como impedimento temporal/permanente.
+Los cuatro supuestos discutibles del modelo están resueltos. Cada decisión está
+expuesta como dial en `AppConfig` para poder revisarse sin tocar código del motor.
+
+### 8.1 Fallback entre vías 5:1 — **Corte estricto**
+
+Si en una posición del ciclo (1-5 mérito, 6 antigüedad) no hay candidato, el
+grado se procesa parcialmente y las vacantes restantes quedan sin proveer ese
+año. No se sustituye por la otra vía ni se salta la posición.
+
+```python
+cfg.policy.enforce_batch_cutoff_on_missing_lane_candidate = True   # default
+cfg.policy.allow_lane_fallback = False                              # default
+```
+
+### 8.2 TTL de vacantes no provistas — **Acumulación indefinida**
+
+Una vacante creada en `t` que no se cubre se arrastra al pool del año siguiente
+hasta que sea provista. No caduca.
+
+```python
+cfg.policy.accumulate_unfilled_vacancies = True   # default
+cfg.policy.unfilled_vacancy_ttl_years = None      # default (sin TTL)
+```
+
+### 8.3 Calificación faltante en año t — **No elegible (postergado)**
+
+Un funcionario sin calificación reportada en el año previo queda postergado por
+dato faltante (motivo `sin_calificacion` en `funcionarios_evaluados.csv`). No
+asciende hasta que el dato se regularice.
+
+```python
+cfg.policy.treat_missing_calificacion_as_lista2 = False   # default
+```
+
+### 8.4 Salud como impedimento — **No bloquea ascenso ni causa retiro**
+
+Los impedimentos de tipo `SALUD` quedan registrados en el roster pero no
+afectan la elegibilidad ni emiten retiro. Solo `SUMARIO` y `SANCION` siguen
+bloqueando ascenso.
+
+```python
+cfg.policy.health_blocks_promotion = False   # default
+```
+
+> Las decisiones también quedan reflejadas en
+> `pdi_projection.config.NORMATIVE_DECISIONS` y se exportan en cada corrida
+> como parte de `manifest.json` (reproducibilidad).
 
 ---
 

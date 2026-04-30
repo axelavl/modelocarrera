@@ -53,8 +53,12 @@ def check_impedimento(f: Funcionario, t: int, cfg: AppConfig) -> tuple[bool, str
 
 def check_lista(f: Funcionario, t: int, cfg: AppConfig) -> tuple[EstadoElegibilidad, int | None]:
     l = lista_ultima(f, t)
-    if l is None and cfg.policy.treat_missing_calificacion_as_lista2:
-        l = 2
+    if l is None:
+        if cfg.policy.treat_missing_calificacion_as_lista2:
+            l = 2
+        else:
+            # Decisión 3.B: sin calificación → no elegible (postergado).
+            return EstadoElegibilidad.POSTERGADO_LISTA, None
     if l == 4:
         return EstadoElegibilidad.RETIRADO, l
     if l == 3:
@@ -67,7 +71,8 @@ def evaluar_elegibilidad(f: Funcionario, estado: EstadoEscalafon, t: int, grado_
     if status_lista == EstadoElegibilidad.RETIRADO:
         return EligibilityTrace(f.id, t, f.grado_actual, grado_destino, False, lista_valor, False, None, False, tiempo_en_grado(f, t), False, False, status_lista, "lista_4")
     if status_lista == EstadoElegibilidad.POSTERGADO_LISTA:
-        return EligibilityTrace(f.id, t, f.grado_actual, grado_destino, False, lista_valor, False, None, False, tiempo_en_grado(f, t), False, False, status_lista, "lista_3")
+        motivo = "sin_calificacion" if lista_valor is None else "lista_3"
+        return EligibilityTrace(f.id, t, f.grado_actual, grado_destino, False, lista_valor, False, None, False, tiempo_en_grado(f, t), False, False, status_lista, motivo)
 
     impedido, tipo_impedimento = check_impedimento(f, t, cfg)
     cumple_tiempo = check_permanencia(f, t, estado.planta)
