@@ -14,9 +14,15 @@ import streamlit as st
 from pdi_projection.config import AppConfig
 from pdi_projection.data_loader import cargar_tabular
 from pdi_projection.domain import SECUENCIA_OPPL, Grado, construir_estado_inicial
+from pdi_projection.metrics.indicators import (
+    composicion_por_sexo,
+    edad_promedio_ascenso,
+    eventos_por_sexo,
+)
 from pdi_projection.outputs import exportar_resultados
 from pdi_projection.reporting import (
     CohorteCriterio,
+    barrer_parametro,
     comparar_ascensos,
     construir_trayectorias,
     correr_escenarios,
@@ -285,6 +291,52 @@ def _tab_backtesting(logs, ascensos_hist: list) -> None:
         st.dataframe(df_v, use_container_width=True, hide_index=True)
 
 
+def _tab_demografia(logs, funcs_iniciales: dict, ingresos_por_año: dict) -> None:
+    if not funcs_iniciales:
+        st.info("No hay funcionarios iniciales para construir indicadores demográficos.")
+        return
+
+    comp = composicion_por_sexo(logs, funcs_iniciales, ingresos_por_año)
+    if comp:
+        st.markdown("**Composición del escalafón por sexo**")
+        rows = [{"año": año, "sexo": sexo, "n": n} for año, dist in sorted(comp.items()) for sexo, n in dist.items()]
+        df_comp = pd.DataFrame(rows)
+        chart = (
+            alt.Chart(df_comp).mark_area().encode(
+                x=alt.X("año:O", title="Año"),
+                y=alt.Y("n:Q", title="Funcionarios", stack="zero"),
+                color=alt.Color("sexo:N", title="Sexo"),
+                tooltip=["año", "sexo", "n"],
+            ).properties(height=300)
+        )
+        st.altair_chart(chart, use_container_width=True)
+
+    rows_ev = eventos_por_sexo(logs, funcs_iniciales, ingresos_por_año)
+    if rows_ev:
+        st.markdown("**Eventos por año, tipo y sexo**")
+        df_ev = pd.DataFrame(rows_ev)
+        chart_ev = (
+            alt.Chart(df_ev).mark_bar().encode(
+                x=alt.X("año:O", title="Año"),
+                y=alt.Y("n:Q", title="Eventos"),
+                color=alt.Color("sexo:N", title="Sexo"),
+                column=alt.Column("tipo:N", title=None),
+                tooltip=["año", "tipo", "sexo", "n"],
+            ).properties(height=240)
+        )
+        st.altair_chart(chart_ev, use_container_width=True)
+
+    edades = edad_promedio_ascenso(logs, funcs_iniciales)
+    if edades:
+        st.markdown("**Edad promedio al ascenso por grado destino**")
+        df_e = pd.DataFrame([{"grado": GRADO_NOMBRE.get(int(g), str(g)), "edad_promedio": round(v, 1)} for g, v in edades.items()])
+        df_e["grado"] = pd.Categorical(df_e["grado"], categories=ORDEN_JERARQUICO, ordered=True)
+        df_e = df_e.sort_values("grado")
+        st.dataframe(df_e, use_container_width=True, hide_index=True)
+    else:
+        st.caption("Edad promedio: requiere `fecha_nacimiento` válida en `funcionarios.csv`.")
+
+
 def _tab_validacion(issues: list) -> None:
     if not issues:
         st.success("Sin observaciones de validación")
@@ -499,7 +551,7 @@ def main() -> None:
     st.title("Sistema de Proyección OPPL/PDI")
     st.caption("Simulador anual con trazabilidad de cada decisión.")
 
-    modo = st.sidebar.radio("Modo", ["Simulación única", "Comparador de escenarios"])
+    modo = st.sidebar.radio("Modo", ["Simulación única", "Comparador de escenarios", "Sensibilidad"])
 
     with st.sidebar.expander("Horizonte", expanded=True):
         año_base = st.number_input("Año base", min_value=2000, max_value=2100, value=2026)
@@ -519,8 +571,10 @@ def main() -> None:
 
     if modo == "Simulación única":
         _modo_simple(uploaded, año_base, horizonte)
-    else:
+    elif modo == "Comparador de escenarios":
         _modo_comparador(uploaded, año_base, horizonte)
+    else:
+        _modo_sensibilidad(uploaded, año_base, horizonte)
 
 
 def _modo_simple(uploaded, año_base, horizonte):
@@ -553,7 +607,7 @@ def _modo_simple(uploaded, año_base, horizonte):
         result = _SimResult("Base", cfg, logs, estado, funcs_iniciales)
 
         st.subheader("2) Resultados")
-        labels = ["Resumen", "Pirámide", "Flujo anual", "Cohortes", "Trazabilidad"]
+        labels = ["Resumen", "Pirámide", "Flujo anual", "Demografía", "Cohortes", "Trazabilidad"]
         if data.ascensos_hist:
             labels.append("Backtesting")
         labels += ["Validación", "Descargas"]
@@ -567,6 +621,9 @@ def _modo_simple(uploaded, año_base, horizonte):
         idx += 1
         with tabs[idx]:
             _tab_flujo(eventos)
+        idx += 1
+        with tabs[idx]:
+            _tab_demografia(logs, funcs_iniciales, data.ingresos_por_año)
         idx += 1
         with tabs[idx]:
             _tab_cohortes(result, año_base)
@@ -668,6 +725,96 @@ def _modo_comparador(uploaded, año_base, horizonte):
                 j += 1
                 with sub[j]:
                     _tab_descargas(outdir, html_report)
+
+
+# ---------- modo sensibilidad ----------
+
+_PARAM_TIPOS = {
+    "mandatory_career_years": ("int", "Años de carrera para retiro obligatorio"),
+    "unfilled_vacancy_ttl_years": ("int_o_none", "TTL de vacantes no provistas (vacío = sin TTL)"),
+    "health_blocks_promotion": ("bool", "Salud bloquea ascenso"),
+    "accumulate_unfilled_vacancies": ("bool", "Acumular vacantes no provistas"),
+    "enforce_batch_cutoff_on_missing_lane_candidate": ("bool", "Aplicar corte de tanda (R12)"),
+    "allow_lane_fallback": ("bool", "Permitir fallback entre vías"),
+    "enable_sobredotacion_absorption": ("bool", "Permitir sobredotación con absorción"),
+    "treat_missing_calificacion_as_lista2": ("bool", "Sin calificación → lista 2"),
+}
+
+
+def _modo_sensibilidad(uploaded, año_base, horizonte):
+    st.sidebar.markdown("**Análisis de sensibilidad**")
+    parametro = st.sidebar.selectbox(
+        "Parámetro a variar",
+        list(_PARAM_TIPOS.keys()),
+        format_func=lambda k: f"{k} — {_PARAM_TIPOS[k][1]}",
+    )
+    tipo = _PARAM_TIPOS[parametro][0]
+    if tipo == "bool":
+        valores = [True, False]
+        st.sidebar.caption("Barrido fijo: True / False")
+    elif tipo == "int":
+        valores_str = st.sidebar.text_input("Valores (separados por coma)", value="28,30,32")
+        try:
+            valores = [int(v.strip()) for v in valores_str.split(",") if v.strip()]
+        except ValueError:
+            st.sidebar.error("Solo enteros separados por coma")
+            valores = []
+    else:  # int_o_none
+        valores_str = st.sidebar.text_input("Valores (vacío = sin TTL; ej. ',2,5')", value=",2,5")
+        valores = []
+        for v in valores_str.split(","):
+            v = v.strip()
+            if v == "":
+                valores.append(None)
+            else:
+                try:
+                    valores.append(int(v))
+                except ValueError:
+                    st.sidebar.error(f"Valor inválido: {v}")
+                    valores = []
+                    break
+
+    with st.sidebar.expander("Configuración base"):
+        base_cfg = _config_widgets("sens_base")
+
+    run = st.button("Ejecutar barrido", type="primary", disabled=not uploaded or not valores)
+    if not run:
+        st.info("Configure el parámetro y los valores en la sidebar, luego presione **Ejecutar barrido**.")
+        return
+    nombres = sorted([f.name for f in uploaded])
+    if any(f not in nombres for f in REQUIRED_FILES):
+        st.stop()
+
+    with tempfile.TemporaryDirectory() as td:
+        tmpdir = Path(td)
+        _save_uploaded_files(uploaded, tmpdir)
+        data = cargar_tabular(str(tmpdir), AppConfig())
+        try:
+            resultados = barrer_parametro(
+                nombre_parametro=parametro,
+                valores=valores,
+                base_config=base_cfg,
+                funcionarios=data.funcionarios,
+                año_base=año_base,
+                horizonte=horizonte,
+                planta=data.planta,
+                transitorias=data.transitorias,
+                ingresos_por_año=data.ingresos_por_año,
+            )
+        except ValueError as e:
+            st.error(str(e))
+            return
+
+        st.subheader(f"2) Sensibilidad sobre `{parametro}` ({len(resultados)} escenarios)")
+        _tab_comparador(resultados)
+
+        html_comp = generar_informe_comparativo_html(resultados)
+        st.download_button(
+            "Descargar informe comparativo (HTML, imprimible a PDF)",
+            data=html_comp.encode("utf-8"),
+            file_name=f"sensibilidad_{parametro}.html",
+            mime="text/html",
+        )
 
 
 if __name__ == "__main__":

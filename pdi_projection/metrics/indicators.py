@@ -147,3 +147,55 @@ def sobredotacion_por_grado(logs, planta: dict[Grado, Planta] | None = None,
             if sobre > 0:
                 out[(año, g)] = sobre
     return out
+
+
+def composicion_por_sexo(logs, funcionarios_iniciales: dict | None = None,
+                         ingresos_por_año: dict | None = None) -> dict[int, dict[str, int]]:
+    """Para cada año del horizonte, cantidad de funcionarios activos por sexo.
+    Combina funcionarios iniciales con ingresos (al año de su nombramiento) y
+    descuenta retiros emitidos por la simulación."""
+    if not funcionarios_iniciales:
+        return {}
+    sexo_por_id: dict[str, str] = {fid: (f.sexo or "X") for fid, f in funcionarios_iniciales.items()}
+    for ingresos in (ingresos_por_año or {}).values():
+        for f in ingresos:
+            sexo_por_id.setdefault(f.id, f.sexo or "X")
+
+    activos: set[str] = set(funcionarios_iniciales.keys())
+    out: dict[int, dict[str, int]] = {}
+    for año in sorted(logs.snapshots.keys()):
+        # Aplica ingresos del año
+        for f in (ingresos_por_año or {}).get(año, []):
+            activos.add(f.id)
+        # Aplica retiros del año
+        for ev in logs.eventos_por_año.get(año, []):
+            if ev.tipo == TipoEvento.RETIRO:
+                activos.discard(ev.funcionario_id)
+        contador: dict[str, int] = defaultdict(int)
+        for fid in activos:
+            contador[sexo_por_id.get(fid, "X")] += 1
+        out[año] = dict(contador)
+    return out
+
+
+def eventos_por_sexo(logs, funcionarios_iniciales: dict | None = None,
+                     ingresos_por_año: dict | None = None) -> list[dict]:
+    """Devuelve filas (año, tipo, sexo, n) listas para construir un DataFrame
+    de barras apiladas. Cuenta ascensos, retiros y postergaciones, etiquetando
+    el sexo a partir de funcionarios_iniciales o de los ingresos."""
+    if not funcionarios_iniciales:
+        return []
+    sexo_por_id: dict[str, str] = {fid: (f.sexo or "X") for fid, f in funcionarios_iniciales.items()}
+    for ingresos in (ingresos_por_año or {}).values():
+        for f in ingresos:
+            sexo_por_id.setdefault(f.id, f.sexo or "X")
+
+    contador: dict[tuple[int, str, str], int] = defaultdict(int)
+    interesa = {TipoEvento.ASCENSO, TipoEvento.RETIRO, TipoEvento.POSTERGACION_VACANTE}
+    for año, evs in logs.eventos_por_año.items():
+        for ev in evs:
+            if ev.tipo not in interesa:
+                continue
+            sexo = sexo_por_id.get(ev.funcionario_id, "X")
+            contador[(año, ev.tipo.value, sexo)] += 1
+    return [{"año": año, "tipo": tipo, "sexo": sexo, "n": n} for (año, tipo, sexo), n in contador.items()]

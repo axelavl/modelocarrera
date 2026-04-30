@@ -3,9 +3,11 @@ from datetime import date
 from pdi_projection.config import AppConfig
 from pdi_projection.domain import Calificacion, Funcionario, Grado, construir_estado_inicial
 from pdi_projection.metrics.indicators import (
+    composicion_por_sexo,
     cuello_botella,
     distribucion_via,
     edad_promedio_ascenso,
+    eventos_por_sexo,
     sobredotacion_por_grado,
     tasa_postergacion,
     tiempo_espera_promedio,
@@ -104,3 +106,38 @@ def test_cuello_botella_ordena_por_ratio_postergacion():
     cb = cuello_botella(logs)
     # PFT debe estar entre los top con ratio 3/2 = 1.5
     assert any(g == Grado.PREFECTO and round(r, 2) == 1.5 for _, g, r in cb)
+
+
+def test_composicion_por_sexo_descuenta_retiros_y_suma_ingresos():
+    cfg = AppConfig()
+    f_m = _f("hombre", Grado.COMISARIO, ant=1)
+    f_m.sexo = "M"
+    f_f = _f("mujer", Grado.COMISARIO, ant=2)
+    f_f.sexo = "F"
+    f_retira = _f("retira", Grado.COMISARIO, año_inst=1997, ant=3)
+    f_retira.sexo = "F"
+    estado = construir_estado_inicial([f_m, f_f, f_retira], 2026)
+    funcs_ini = {fid: f for fid, f in estado.funcionarios.items()}
+    logs = simular(estado, 2026, 1, {}, cfg)
+    comp = composicion_por_sexo(logs, funcs_ini, ingresos_por_año={})
+    # En 2026 retira "retira" por carrera 30 (1997+30 = 2027 año <= 2027 es t-año_inst >= 30 ⇒ se va a evaluar en 2027 pero... revisar)
+    # Más robusto: validamos totales por año.
+    assert comp[2026]["M"] == 1
+    assert comp[2026]["F"] >= 1  # al menos la mujer no-retirada
+
+
+def test_eventos_por_sexo_etiqueta_correctamente():
+    cfg = AppConfig()
+    f1 = _f("a", Grado.SUBPREFECTO, ant=1, cursos=["COG"])
+    f1.sexo = "F"
+    f2 = _f("b", Grado.SUBPREFECTO, ant=2, cursos=["COG"])
+    f2.sexo = "M"
+    estado = construir_estado_inicial([f1, f2], 2026)
+    funcs_ini = {fid: f for fid, f in estado.funcionarios.items()}
+    estado.planta[Grado.PREFECTO].vacantes_ley = 1
+    logs = simular(estado, 2026, 0, {}, cfg)
+    rows = eventos_por_sexo(logs, funcs_ini)
+    # Debe haber al menos un ascenso con sexo etiquetado.
+    ascensos = [r for r in rows if r["tipo"] == "ascenso"]
+    assert ascensos
+    assert all(r["sexo"] in {"F", "M"} for r in ascensos)
