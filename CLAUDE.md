@@ -57,9 +57,14 @@ When extending the engine, preserve the trace contract: every elegible must prod
 
 ### Configuration boundary
 
-`pdi_projection/config.py` defines the **only** sanctioned dial. Hard normative rules (`NORMATIVE_HARD_RULES` R1/R2/R4) are baked into engine code and must NOT be made configurable without explicit instruction. Soft assumptions live in `SimulationPolicy`, `MeritPolicy.config`, `InputPolicy`, `OutputPolicy`. When adding new behaviour that affects outcomes, expose it via `AppConfig` rather than hardcoding it.
+`pdi_projection/config.py` defines the **only** sanctioned dial. Hard normative rules (`NORMATIVE_HARD_RULES` R1/R2/R4) are baked into engine code and must NOT be made configurable without explicit instruction. The four discretionary supuestos that the model must answer are resolved in `NORMATIVE_DECISIONS` (see `README.md` §8) and exposed as defaults of `SimulationPolicy`:
 
-`AppConfig()` defaults express the current best-guess interpretation of the regulation; tests rely on these defaults.
+- §8.1 Fallback 5:1 → corte estricto (`enforce_batch_cutoff_on_missing_lane_candidate=True`, `allow_lane_fallback=False`)
+- §8.2 TTL vacantes → acumulación indefinida (`accumulate_unfilled_vacancies=True`, `unfilled_vacancy_ttl_years=None`)
+- §8.3 Calificación faltante → no elegible (`treat_missing_calificacion_as_lista2=False`)
+- §8.4 Salud → no bloquea ni retira (`health_blocks_promotion=False`)
+
+Soft assumptions live in `SimulationPolicy`, `MeritPolicy.config`, `InputPolicy`, `OutputPolicy`. When adding new behaviour that affects outcomes, expose it via `AppConfig` rather than hardcoding it. Each run's full config is exported to `manifest.json` for reproducibility.
 
 ### Data loading and validation
 
@@ -80,7 +85,9 @@ The legacy helpers at the bottom of `csv_loader.py` (`cargar_dotacion`, `cargar_
 Higher-level analyses that compose the simulator's outputs without modifying the engine:
 
 - `scenarios.correr_escenarios([(nombre, AppConfig), ...], ...)` runs N isolated simulations from the same input data. Inputs (`funcionarios`, `ingresos_por_año`) are deep-copied per scenario because the simulator mutates `Funcionario` in place — sharing references would cross-contaminate runs.
+- `scenarios.barrer_parametro(...)` automates a sensitivity sweep over a single `SimulationPolicy` field; returns the same `ResultadoEscenario` list as `correr_escenarios` for charting.
 - `cohorts.construir_trayectorias(logs, funcionarios_iniciales, año_base)` reconstructs each funcionario's grade and status year by year by replaying events from the log. Used to compute cohort distributions (`miembros_cohorte` + `distribucion_cohorte_por_año` + `resumen_cohorte`).
-- `html_report.generar_informe_html(...)` produces a self-contained HTML (Vega-Lite charts hydrated from CDN, KPIs, validation tables) that can be printed to PDF from any browser. No headless rendering deps required.
+- `backtesting.comparar_ascensos(eventos_simulados, ascensos_historicos, ...)` produces a `ResultadoBacktest` with precision/recall/F1 globally, by year and by grade. Loaded automatically when `ascensos_hist.csv` is present in the input directory.
+- `html_report.generar_informe_html(...)` and `html_report.generar_informe_comparativo_html(...)` produce self-contained HTML (Vega-Lite charts hydrated from CDN, KPIs, validation tables) that can be printed to PDF from any browser. No headless rendering deps required.
 
-The Streamlit app (`streamlit_app.py`) wires both modes — single simulation and scenario comparator — over the reporting layer.
+The Streamlit app (`streamlit_app.py`) wires both modes — single simulation and scenario comparator — over the reporting layer. It also surfaces tabs for traceability (per-funcionario eligibility + ranking history), cohorts, validation issues and (when `ascensos_hist.csv` is uploaded) backtesting.

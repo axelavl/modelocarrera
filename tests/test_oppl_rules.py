@@ -29,7 +29,7 @@ def mk_func(fid: str, grado: Grado, ingreso_grado_year=2020, ingreso_inst_year=2
         grado_actual=grado,
         antiguedad_escalafon=ant,
         cursos_aprobados=set(cursos or []),
-        historico_calificaciones=listas or [Calificacion(2025, 1)],
+        historico_calificaciones=listas if listas is not None else [Calificacion(2025, 1)],
         abono_meses=abono,
     )
 

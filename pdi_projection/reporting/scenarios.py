@@ -67,3 +67,37 @@ def correr_escenarios(
         correr_escenario(nombre, cfg, funcionarios, año_base, horizonte, planta, transitorias, ingresos_por_año)
         for nombre, cfg in escenarios
     ]
+
+
+def barrer_parametro(
+    nombre_parametro: str,
+    valores: list,
+    base_config: AppConfig,
+    funcionarios: list[Funcionario],
+    año_base: int,
+    horizonte: int,
+    planta: dict | None,
+    transitorias: dict | None,
+    ingresos_por_año: dict[int, list[Funcionario]],
+) -> list[ResultadoEscenario]:
+    """Análisis de sensibilidad: corre N escenarios variando un único atributo
+    de ``base_config.policy``, dejando todo lo demás constante.
+
+    Útil para responder preguntas como "¿qué pasa si la carrera obligatoria fuera
+    de 28, 29, 30, 31 o 32 años?". Devuelve una lista de ``ResultadoEscenario``
+    compatible con ``html_report.generar_informe_comparativo_html`` y los
+    helpers de comparación del Streamlit.
+    """
+    if not hasattr(base_config.policy, nombre_parametro):
+        raise ValueError(
+            f"'{nombre_parametro}' no es un atributo de SimulationPolicy. "
+            f"Atributos disponibles: {sorted(vars(base_config.policy).keys())}"
+        )
+    escenarios: list[tuple[str, AppConfig]] = []
+    for valor in valores:
+        cfg = copy.deepcopy(base_config)
+        setattr(cfg.policy, nombre_parametro, valor)
+        escenarios.append((f"{nombre_parametro}={valor}", cfg))
+    return correr_escenarios(
+        escenarios, funcionarios, año_base, horizonte, planta, transitorias, ingresos_por_año
+    )

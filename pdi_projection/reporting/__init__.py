@@ -11,12 +11,18 @@ from .cohorts import (
     resumen_cohorte,
 )
 from .html_report import generar_informe_comparativo_html, generar_informe_html
-from .scenarios import ResultadoEscenario, correr_escenario, correr_escenarios
+from .scenarios import (
+    ResultadoEscenario,
+    barrer_parametro,
+    correr_escenario,
+    correr_escenarios,
+)
 
 __all__ = [
     "ResultadoEscenario",
     "correr_escenario",
     "correr_escenarios",
+    "barrer_parametro",
     "CohorteCriterio",
     "construir_trayectorias",
     "distribucion_cohorte_por_año",

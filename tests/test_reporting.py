@@ -1,11 +1,13 @@
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from pdi_projection.config import AppConfig
 from pdi_projection.domain import Calificacion, Funcionario, Grado
 from pdi_projection.reporting import (
     CohorteCriterio,
+    barrer_parametro,
     construir_trayectorias,
     correr_escenarios,
     distribucion_cohorte_por_año,
@@ -147,3 +149,44 @@ def test_generar_informe_html_es_auto_contenido():
     assert "Informe de proyección OPPL/PDI" in html
     assert "vega-embed" in html  # script CDN incluido
     assert "kpi-grid" in html
+
+
+def test_barrer_parametro_genera_un_escenario_por_valor():
+    funcs = [mk_func(f"f{i}", Grado.SUBPREFECTO, ant=i, cursos=["COG"]) for i in range(1, 4)]
+    base = AppConfig()
+    resultados = barrer_parametro(
+        nombre_parametro="mandatory_career_years",
+        valores=[28, 30, 32],
+        base_config=base,
+        funcionarios=funcs,
+        año_base=2026,
+        horizonte=2,
+        planta=None,
+        transitorias=None,
+        ingresos_por_año={},
+    )
+    assert [r.nombre for r in resultados] == [
+        "mandatory_career_years=28",
+        "mandatory_career_years=30",
+        "mandatory_career_years=32",
+    ]
+    assert resultados[0].config.policy.mandatory_career_years == 28
+    assert resultados[2].config.policy.mandatory_career_years == 32
+    # Cada escenario produce su propio log independiente
+    años = sorted(resultados[0].logs.snapshots.keys())
+    assert años == [2026, 2027, 2028]
+
+
+def test_barrer_parametro_falla_con_atributo_inexistente():
+    with pytest.raises(ValueError, match="no es un atributo"):
+        barrer_parametro(
+            nombre_parametro="parametro_inventado",
+            valores=[1, 2],
+            base_config=AppConfig(),
+            funcionarios=[],
+            año_base=2026,
+            horizonte=0,
+            planta=None,
+            transitorias=None,
+            ingresos_por_año={},
+        )
